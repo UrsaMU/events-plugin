@@ -9,7 +9,7 @@
  */
 import { assertEquals, assertExists } from "jsr:@std/assert";
 import { eventsRouteHandler } from "../router.ts";
-import { gameEvents, eventRsvps, parseDateTime, counters } from "../db.ts";
+import { gameEvents, eventRsvps, parseDateTime, counters, eventsConfig } from "../db.ts";
 import { dbojs, DBO } from "jsr:@ursamu/ursamu";
 
 const OPTS = { sanitizeResources: false, sanitizeOps: false };
@@ -48,6 +48,7 @@ async function cleanAll() {
     await eventRsvps.delete({ eventId: ev.id }).catch(() => {});
   }
   await counters.delete({ id: "eventid" }).catch(() => {});
+  await eventsConfig.delete({ id: "config" }).catch(() => {});
   await dbojs.delete({ id: STAFF_ID }).catch(() => {});
   await dbojs.delete({ id: PLAYER_ID }).catch(() => {});
   await dbojs.delete({ id: PLAYER2_ID }).catch(() => {});
@@ -101,15 +102,23 @@ Deno.test("EventsPlugin — GET /api/v1/events 401 without userId", OPTS, async 
   assertEquals(status, 401);
 });
 
-// ─── create event (staff only) ────────────────────────────────────────────────
+// ─── create event ────────────────────────────────────────────────────────────
+// v2: players can create events; they receive "pending" status when requireApproval=true
 
-Deno.test("EventsPlugin — POST /api/v1/events 403 for player", OPTS, async () => {
-  const { status } = await call("POST", "/api/v1/events", PLAYER_ID, {
-    title: "Test",
-    description: "Desc",
-    startTime: "2027-06-15",
-  });
-  assertEquals(status, 403);
+Deno.test("EventsPlugin — POST /api/v1/events player creates pending event", OPTS, async () => {
+  const { status, data } = await call<{ status: string; playerCreated: boolean; id: string }>(
+    "POST", "/api/v1/events", PLAYER_ID, {
+      title: "Test",
+      description: "Desc",
+      startTime: "2027-06-15",
+    },
+  );
+  // Player-created events land as "pending" (requireApproval defaults to true)
+  assertEquals(status, 201);
+  assertEquals(data.playerCreated, true);
+  // Clean up immediately so this pending event does not shift subsequent event numbers
+  await gameEvents.delete({ id: data.id });
+  await counters.delete({ id: "eventid" });
 });
 
 Deno.test("EventsPlugin — POST /api/v1/events 400 missing required fields", OPTS, async () => {
@@ -342,11 +351,13 @@ Deno.test("EventsPlugin — capacity: first RSVP succeeds (201)", OPTS, async ()
   assertEquals(status, 201);
 });
 
-Deno.test("EventsPlugin — capacity: second RSVP returns 409", OPTS, async () => {
-  const { status } = await call(
+Deno.test("EventsPlugin — capacity: second RSVP auto-assigns waitlist (201)", OPTS, async () => {
+  // v2: full events no longer return 409; the player is auto-added to the waitlist
+  const { status, data } = await call<{ status: string; waitlistPosition?: number }>(
     "POST", "/api/v1/events/3/rsvp", PLAYER2_ID, { status: "attending" },
   );
-  assertEquals(status, 409);
+  assertEquals(status, 201);
+  assertEquals(data.status, "waitlist");
 });
 
 Deno.test("EventsPlugin — capacity: updating own attending RSVP doesn't consume capacity", OPTS, async () => {
@@ -357,12 +368,16 @@ Deno.test("EventsPlugin — capacity: updating own attending RSVP doesn't consum
   assertEquals(status, 200);
 });
 
-Deno.test("EventsPlugin — capacity freed after cancel: player2 can now attend", OPTS, async () => {
+Deno.test("EventsPlugin — capacity freed after cancel: waitlisted player auto-promoted", OPTS, async () => {
+  // Player1 cancels → waitlist promotion fires → player2 becomes attending automatically
   await call("DELETE", "/api/v1/events/3/rsvp", PLAYER_ID);
-  const { status } = await call(
-    "POST", "/api/v1/events/3/rsvp", PLAYER2_ID, { status: "attending" },
+  // Verify player2 is now attending (was on waitlist, got promoted)
+  const { data } = await call<{ myRsvp: string | { status: string } }>(
+    "GET", "/api/v1/events/3", PLAYER2_ID,
   );
-  assertEquals(status, 201);
+  // myRsvp is the status string e.g. "attending"
+  const myStatus = typeof data.myRsvp === "string" ? data.myRsvp : (data.myRsvp as { status: string }).status;
+  assertEquals(myStatus, "attending");
 });
 
 // ─── cancelled event visibility ───────────────────────────────────────────────

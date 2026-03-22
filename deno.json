@@ -1,7 +1,7 @@
 {
   "name": "@ursamu/events-plugin",
-  "version": "1.0.0",
-  "description": "In-game event calendar with RSVP tracking and REST API for UrsaMU",
+  "version": "2.0.0",
+  "description": "Full-featured event calendar with RSVP, waitlists, recurring series, check-in, and approval workflow for UrsaMU",
   "exports": {
     ".": "./index.ts",
     "./mod": "./mod.ts"
