@@ -1,6 +1,29 @@
-import type { IUrsamuSDK } from "jsr:@ursamu/ursamu";
+import type { IUrsamuSDK, IDBObj, FormatSlot } from "jsr:@ursamu/ursamu";
+import { resolveFormat, dbojs } from "jsr:@ursamu/ursamu";
 import { gameEvents, eventRsvps, formatDateTime, normalizeEvent } from "../db.ts";
 import { isStaff, statusColor, rsvpColor, getEventByNumber } from "./shared.ts";
+
+/**
+ * Two-tier lookup for global-list format slots:
+ *   1. attr on #0 (game-wide skin) — wins if set.
+ *   2. attr on the enactor (per-player skin).
+ *   3. null → caller renders built-in default.
+ *
+ * Mirrors the WHO/WHOROW pattern from ursamu's src/commands/social.ts.
+ */
+async function resolveGlobalFormat(
+  u: IUrsamuSDK,
+  slot: string,
+  defaultArg: string,
+): Promise<string | null> {
+  const root = await dbojs.queryOne({ id: "0" });
+  if (root) {
+    const rootObj = root as unknown as IDBObj;
+    const onRoot = await resolveFormat(u, rootObj, slot as FormatSlot, defaultArg);
+    if (onRoot != null) return onRoot;
+  }
+  return await resolveFormat(u, u.me, slot as FormatSlot, defaultArg);
+}
 
 const HEADER = "%ch+events%cn";
 const PREFIX = "%ch+event:%cn";
@@ -26,17 +49,8 @@ export async function handleList(u: IUrsamuSDK): Promise<void> {
     return;
   }
 
-  u.send(HEADER);
-  u.send(
-    "%ch" +
-    u.util.rjust("#", 4) + "  " +
-    u.util.ljust("Title", 28) +
-    u.util.ljust("Date", 20) +
-    u.util.rjust("RSVPs", 7) + "  " +
-    "Status%cn",
-  );
-  u.send("%ch" + "-".repeat(70) + "%cn");
-
+  // Build per-row strings; @eventrowformat may override each one (%0 = default row).
+  const rows: string[] = [];
   for (const e of visible) {
     const attending  = await eventRsvps.find({ eventId: e.id, status: "attending" });
     const waitlisted = await eventRsvps.find({ eventId: e.id, status: "waitlist" });
@@ -46,16 +60,32 @@ export async function handleList(u: IUrsamuSDK): Promise<void> {
     const sc         = statusColor(e.status);
     const pending    = e.status === "pending" ? " %ch%cx[PENDING]%cn" : "";
 
-    u.send(
+    const defaultRow =
       u.util.rjust(String(e.number), 4) + "  " +
       u.util.ljust(e.title.slice(0, 27), 28) +
       u.util.ljust(formatDateTime(e.startTime), 20) +
       u.util.rjust(capStr, 7) + "  " +
-      sc + e.status + "%cn" + pending,
-    );
+      sc + e.status + "%cn" + pending;
+
+    const rowOverride = await resolveGlobalFormat(u, "EVENTROWFORMAT", defaultRow);
+    rows.push(rowOverride != null ? rowOverride : defaultRow);
   }
 
-  u.send('Use "+event/view <#>" to see details and RSVP.');
+  // Default block — also serves as %0 for @eventlistformat.
+  let defaultBlock = `${HEADER}\n`;
+  defaultBlock +=
+    "%ch" +
+    u.util.rjust("#", 4) + "  " +
+    u.util.ljust("Title", 28) +
+    u.util.ljust("Date", 20) +
+    u.util.rjust("RSVPs", 7) + "  " +
+    "Status%cn\n";
+  defaultBlock += "%ch" + "-".repeat(70) + "%cn\n";
+  for (const r of rows) defaultBlock += `${r}\n`;
+  defaultBlock += 'Use "+event/view <#>" to see details and RSVP.';
+
+  const blockOverride = await resolveGlobalFormat(u, "EVENTLISTFORMAT", defaultBlock);
+  u.send(blockOverride != null ? blockOverride : defaultBlock);
 }
 
 // ─── view ─────────────────────────────────────────────────────────────────────

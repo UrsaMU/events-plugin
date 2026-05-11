@@ -51,7 +51,12 @@ Examples:
   +event/checkin 3=Alice           Staff/organizer: check in Alice.
   +event/create Summer Gala=2027-08-01 20:00/Annual summer gathering.
   +event/approve 5                 Approve pending event #5.
-  +event/series-create Trivia=0 20 * * 5/Weekly Friday trivia night.`,
+  +event/series-create Trivia=0 20 * * 5/Weekly Friday trivia night.
+
+Customisation:
+  The +event/list output respects @eventlistformat (full block, %0=default
+  block) and @eventrowformat (per-row, %0=default row). Set either on #0 for
+  a game-wide skin, or on yourself for a per-player override.`,
 
   exec: async (u: IUrsamuSDK) => {
     // Deliver any queued notifications (reminders, approvals, waitlist promotions)
