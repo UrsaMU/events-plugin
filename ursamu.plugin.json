@@ -1,8 +1,8 @@
 {
   "name": "events",
-  "version": "1.0.0",
+  "version": "2.1.1",
   "description": "In-game event calendar with RSVP tracking and REST API",
-  "ursamu": ">=1.9.2",
+  "ursamu": ">=2.3.3",
   "author": "UrsaMU",
   "license": "MIT",
   "main": "index.ts"
