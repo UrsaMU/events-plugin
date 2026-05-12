@@ -1,29 +1,7 @@
-import type { IUrsamuSDK, IDBObj, FormatSlot } from "jsr:@ursamu/ursamu";
-import { resolveFormat, dbojs } from "jsr:@ursamu/ursamu";
+import type { IUrsamuSDK, FormatSlot } from "jsr:@ursamu/ursamu";
+import { resolveGlobalFormat } from "jsr:@ursamu/ursamu";
 import { gameEvents, eventRsvps, formatDateTime, normalizeEvent } from "../db.ts";
 import { isStaff, statusColor, rsvpColor, getEventByNumber } from "./shared.ts";
-
-/**
- * Two-tier lookup for global-list format slots:
- *   1. attr on #0 (game-wide skin) — wins if set.
- *   2. attr on the enactor (per-player skin).
- *   3. null → caller renders built-in default.
- *
- * Mirrors the WHO/WHOROW pattern from ursamu's src/commands/social.ts.
- */
-async function resolveGlobalFormat(
-  u: IUrsamuSDK,
-  slot: string,
-  defaultArg: string,
-): Promise<string | null> {
-  const root = await dbojs.queryOne({ id: "0" });
-  if (root) {
-    const rootObj = root as unknown as IDBObj;
-    const onRoot = await resolveFormat(u, rootObj, slot as FormatSlot, defaultArg);
-    if (onRoot != null) return onRoot;
-  }
-  return await resolveFormat(u, u.me, slot as FormatSlot, defaultArg);
-}
 
 const HEADER = "%ch+events%cn";
 const PREFIX = "%ch+event:%cn";
@@ -67,7 +45,7 @@ export async function handleList(u: IUrsamuSDK): Promise<void> {
       u.util.rjust(capStr, 7) + "  " +
       sc + e.status + "%cn" + pending;
 
-    const rowOverride = await resolveGlobalFormat(u, "EVENTROWFORMAT", defaultRow);
+    const rowOverride = await resolveGlobalFormat(u, "EVENTROWFORMAT" as FormatSlot, defaultRow);
     rows.push(rowOverride != null ? rowOverride : defaultRow);
   }
 
@@ -84,7 +62,7 @@ export async function handleList(u: IUrsamuSDK): Promise<void> {
   for (const r of rows) defaultBlock += `${r}\n`;
   defaultBlock += 'Use "+event/view <#>" to see details and RSVP.';
 
-  const blockOverride = await resolveGlobalFormat(u, "EVENTLISTFORMAT", defaultBlock);
+  const blockOverride = await resolveGlobalFormat(u, "EVENTLISTFORMAT" as FormatSlot, defaultBlock);
   u.send(blockOverride != null ? blockOverride : defaultBlock);
 }
 
